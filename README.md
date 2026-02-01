@@ -6,7 +6,7 @@ Warning! Created by claude-opus-4.5 without human intervention.
 ## Installation
 
 ```bash
-pip install timestamp-store
+pip install git+https://github.com/shutkanos/timestamp_store.git
 ```
 
 **Requirements:** C++ compiler (g++, clang++, or MSVC)
@@ -15,7 +15,16 @@ pip install timestamp-store
 
 - **Ubuntu/Debian:** `sudo apt install g++`
 - **macOS:** `xcode-select --install`
-- **Windows:** Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+- **Windows:** Install [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) or:
+
+PowerShell:
+```PowerShell
+winget install -e --id MSYS2.MSYS2
+```
+MSYS2:
+```
+pacman -S mingw-w64-x86_64-gcc
+```
 
 ## Usage
 
