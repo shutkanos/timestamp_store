@@ -1,7 +1,7 @@
 """
-TimestampStore - быстрая структура данных для пар (id, timestamp)
+TimestampStore - fast data structure for pairs (id, timestamp)
 
-Пример использования:
+Usage example:
     from timestamp_store import TimestampStore
 
     store = TimestampStore()
@@ -9,6 +9,7 @@ TimestampStore - быстрая структура данных для пар (i
     store.add(2, 50)
 
     removed = store.remove_timestamp(80)  # [2]
+    removed = store.remove_timestamp(120) # [1]
 """
 
 from .wrapper import TimestampStore

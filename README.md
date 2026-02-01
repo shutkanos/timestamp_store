@@ -46,10 +46,9 @@ print(removed)  # [2, 1]
 store.remove(3)
 
 # Create from list
-store = TimestampStore.from_list([(1, 100), (2, 200)])
-
+store = TimestampStore([(1, 100), (2, 200)])
 # Create from dict
-store = TimestampStore.from_dict({1: 100, 2: 200})
+store = TimestampStore({1: 100, 2: 200})
 ```
 
 ## Complexity
