@@ -1,7 +1,3 @@
-"""
-Setup script для timestamp_store с автоматической компиляцией C++
-"""
-
 import os
 import sys
 import platform
@@ -27,166 +23,208 @@ def get_library_name():
         return "libtimestamp_store.so"
 
 
-def find_vswhere() -> Path | None:
-    """Найти vswhere.exe для поиска Visual Studio"""
-    vswhere_paths = [
-        Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))
-        / "Microsoft Visual Studio" / "Installer" / "vswhere.exe",
-        Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
-        / "Microsoft Visual Studio" / "Installer" / "vswhere.exe",
+def find_mingw_path():
+    """Найти путь к MinGW на Windows"""
+    mingw_search_paths = [
+        # MSYS2 пути (наиболее популярные)
+        Path("C:/msys64/mingw64/bin"),
+        Path("C:/msys64/ucrt64/bin"),
+        Path("C:/msys64/clang64/bin"),
+        Path("C:/msys64/mingw32/bin"),
+        Path("C:/msys2/mingw64/bin"),
+        Path("C:/msys2/ucrt64/bin"),
+        # Standalone MinGW
+        Path("C:/mingw64/bin"),
+        Path("C:/mingw/bin"),
+        Path("C:/MinGW/bin"),
+        # Chocolatey
+        Path("C:/tools/mingw64/bin"),
+        # Scoop
+        Path(os.environ.get("USERPROFILE", "")) / "scoop/apps/mingw/current/bin",
+        # Program Files
+        Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "mingw-w64/x86_64-8.1.0-posix-seh-rt_v6-rev0/mingw64/bin",
+        Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "mingw64/bin",
     ]
-    for path in vswhere_paths:
-        if path.exists():
+
+    # Проверяем переменные окружения
+    for env_var in ["MINGW_HOME", "MINGW64_HOME", "MSYS2_HOME"]:
+        if env_var in os.environ:
+            env_path = Path(os.environ[env_var])
+            if (env_path / "bin" / "g++.exe").exists():
+                mingw_search_paths.insert(0, env_path / "bin")
+            elif (env_path / "g++.exe").exists():
+                mingw_search_paths.insert(0, env_path)
+
+    for path in mingw_search_paths:
+        if path.exists() and (path / "g++.exe").exists():
+            print(f"Found MinGW at: {path}")
             return path
+
     return None
 
 
-def find_msvc_vcvarsall() -> Path | None:
-    """Найти vcvarsall.bat для настройки окружения MSVC"""
-    # Способ 1: Через vswhere (рекомендуемый)
-    vswhere = find_vswhere()
+def find_msvc_vcvarsall():
+    """Найти vcvarsall.bat для MSVC"""
+    program_files_x86 = os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)")
+    program_files = os.environ.get("ProgramFiles", "C:\\Program Files")
+
+    vswhere_paths = [
+        Path(program_files_x86) / "Microsoft Visual Studio/Installer/vswhere.exe",
+        Path(program_files) / "Microsoft Visual Studio/Installer/vswhere.exe",
+    ]
+
+    vswhere = None
+    for p in vswhere_paths:
+        if p.exists():
+            vswhere = p
+            break
+
     if vswhere:
         try:
+            # Ищем установку с C++ компонентами
             result = subprocess.run(
                 [
-                    str(vswhere), "-latest", "-products", "*",
-                    "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
-                    "-property", "installationPath"
+                    str(vswhere),
+                    "-latest",
+                    "-property", "installationPath",
+                    "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
                 ],
                 capture_output=True,
                 text=True,
-                timeout=10
+                check=True
             )
-            if result.returncode == 0 and result.stdout.strip():
-                vcvarsall = (
-                        Path(result.stdout.strip())
-                        / "VC" / "Auxiliary" / "Build" / "vcvarsall.bat"
-                )
-                if vcvarsall.exists():
-                    return vcvarsall
-        except (subprocess.TimeoutExpired, OSError):
+            vs_path = Path(result.stdout.strip())
+            vcvarsall = vs_path / "VC/Auxiliary/Build/vcvarsall.bat"
+            if vcvarsall.exists():
+                print(f"Found MSVC vcvarsall at: {vcvarsall}")
+                return vcvarsall
+        except subprocess.CalledProcessError:
             pass
 
-    # Способ 2: Поиск в стандартных путях
-    program_files_dirs = [
-        os.environ.get("ProgramFiles", r"C:\Program Files"),
-        os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
-    ]
+    # Fallback: прямой поиск в стандартных местах
+    vs_years = ["2022", "2019", "2017"]
+    vs_editions = ["Enterprise", "Professional", "Community", "BuildTools"]
 
-    for pf in program_files_dirs:
-        vs_base = Path(pf) / "Microsoft Visual Studio"
-        if not vs_base.exists():
-            continue
-
-        for year in ["2022", "2019", "2017"]:
-            for edition in ["Enterprise", "Professional", "Community", "BuildTools"]:
-                vcvarsall = (
-                        vs_base / year / edition
-                        / "VC" / "Auxiliary" / "Build" / "vcvarsall.bat"
-                )
+    for year in vs_years:
+        for edition in vs_editions:
+            for pf in [program_files, program_files_x86]:
+                vcvarsall = Path(pf) / f"Microsoft Visual Studio/{year}/{edition}/VC/Auxiliary/Build/vcvarsall.bat"
                 if vcvarsall.exists():
+                    print(f"Found MSVC vcvarsall at: {vcvarsall}")
                     return vcvarsall
 
     return None
 
 
-def find_mingw_gpp() -> Path | None:
-    """Найти g++ от MinGW/MSYS2 на Windows"""
-    # Способ 1: Проверяем PATH
-    gpp = shutil.which("g++")
-    if gpp:
-        return Path(gpp)
+def get_msvc_environment(vcvarsall):
+    """Получить переменные окружения после запуска vcvarsall.bat"""
+    arch = "x64" if platform.machine().endswith('64') else "x86"
 
-    # Способ 2: Известные пути установки
-    user_profile = os.environ.get("USERPROFILE", "")
-    possible_paths = [
-        # MSYS2 (наиболее популярный)
-        Path(r"C:\msys64\mingw64\bin\g++.exe"),
-        Path(r"C:\msys64\ucrt64\bin\g++.exe"),
-        Path(r"C:\msys64\clang64\bin\g++.exe"),
-        Path(r"C:\msys64\mingw32\bin\g++.exe"),
-        # Standalone MinGW-w64
-        Path(r"C:\mingw64\bin\g++.exe"),
-        Path(r"C:\mingw32\bin\g++.exe"),
-        # Старый MinGW
-        Path(r"C:\MinGW\bin\g++.exe"),
-        # Chocolatey
-        Path(r"C:\tools\mingw64\bin\g++.exe"),
-        Path(r"C:\ProgramData\chocolatey\lib\mingw\tools\install\mingw64\bin\g++.exe"),
-        # Scoop
-        Path(user_profile) / r"scoop\apps\mingw\current\bin\g++.exe",
-        # WinLibs
-        Path(r"C:\mingw-w64\bin\g++.exe"),
-    ]
+    # Запускаем vcvarsall и получаем переменные окружения
+    cmd = f'"{vcvarsall}" {arch} >nul 2>&1 && set'
 
-    # Добавляем пути из Program Files
-    for pf_var in ["ProgramFiles", "ProgramFiles(x86)"]:
-        pf = os.environ.get(pf_var, "")
-        if pf:
-            possible_paths.extend([
-                Path(pf) / r"mingw-w64\x86_64-posix-seh\mingw64\bin\g++.exe",
-                Path(pf) / r"mingw64\bin\g++.exe",
-                Path(pf) / r"CodeBlocks\MinGW\bin\g++.exe",
-            ])
+    try:
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            check=True
+        )
 
-    for path in possible_paths:
-        if path.exists():
-            return path
+        # Парсим вывод команды set
+        env = {}
+        for line in result.stdout.splitlines():
+            if '=' in line:
+                key, _, value = line.partition('=')
+                env[key] = value
 
-    return None
+        return env
+    except subprocess.CalledProcessError as e:
+        print(f"Warning: Failed to setup MSVC environment: {e}")
+        return None
 
 
-def get_compiler_command() -> list[str]:
-    """Получить команду компиляции для текущей платформы"""
+def get_compiler_command():
+    """
+    Получить команду компиляции и окружение для текущей платформы.
+    Возвращает tuple (command_list, environment_dict)
+    """
     system = platform.system()
     lib_name = get_library_name()
 
-    # Путь к исходникам
     src_dir = Path(__file__).parent / "timestamp_store" / "src"
     cpp_file = src_dir / "timestamp_store.cpp"
     output_dir = Path(__file__).parent / "timestamp_store"
     output_file = output_dir / lib_name
 
-    if system == "Windows":
-        # Вариант 1: cl в PATH (запущено из Developer Command Prompt)
-        if shutil.which("cl"):
-            return [
-                "cl", "/O2", "/LD", "/EHsc",
-                "/std:c++17",
-                str(cpp_file),
-                f"/Fe:{output_file}"
-            ]
+    env = os.environ.copy()
 
-        # Вариант 2: g++ (MinGW/MSYS2)
-        gpp = find_mingw_gpp()
-        if gpp:
+    if system == "Windows":
+        # === Вариант 1: Ищем MinGW ===
+        mingw_path = find_mingw_path()
+        if mingw_path:
+            # Добавляем MinGW в начало PATH
+            env["PATH"] = str(mingw_path) + os.pathsep + env.get("PATH", "")
+
+            gpp_path = mingw_path / "g++.exe"
+
             return [
-                str(gpp), "-O3", "-std=c++17", "-shared",
+                str(gpp_path),
+                "-O3", "-std=c++17", "-shared",
+                # Статическая линковка runtime библиотек - решает проблему "точка входа не найдена"
+                "-static-libgcc",
+                "-static-libstdc++",
+                "-static",  # Полностью статическая линковка (если возможно)
                 "-o", str(output_file),
                 str(cpp_file)
-            ]
+            ], env
 
-        # Вариант 3: MSVC через vcvarsall.bat
+        # === Вариант 2: Ищем MSVC ===
         vcvarsall = find_msvc_vcvarsall()
         if vcvarsall:
-            arch = "x64" if platform.machine().endswith('64') else "x86"
-            compile_cmd = (
-                f'cl /O2 /LD /EHsc /std:c++17 '
-                f'"{cpp_file}" /Fe:"{output_file}"'
-            )
-            return [
-                "cmd", "/c",
-                f'call "{vcvarsall}" {arch} >nul 2>&1 && {compile_cmd}'
-            ]
+            msvc_env = get_msvc_environment(vcvarsall)
+            if msvc_env:
+                return [
+                    "cl",
+                    "/O2",
+                    "/LD",       # Создать DLL
+                    "/EHsc",     # Исключения C++
+                    "/std:c++17",
+                    "/MT",       # Статическая линковка CRT (решает проблему с runtime)
+                    str(cpp_file),
+                    f"/Fe:{output_file}",
+                    f"/Fo:{output_dir}\\",  # Папка для .obj файлов
+                ], msvc_env
 
+        # === Вариант 3: Проверяем PATH ===
+        if shutil.which("g++"):
+            print("Using g++ from PATH")
+            return [
+                "g++", "-O3", "-std=c++17", "-shared",
+                "-static-libgcc", "-static-libstdc++",
+                "-o", str(output_file),
+                str(cpp_file)
+            ], env
+
+        if shutil.which("cl"):
+            print("Using cl from PATH")
+            return [
+                "cl", "/O2", "/LD", "/EHsc",
+                "/std:c++17", "/MT",
+                str(cpp_file),
+                f"/Fe:{output_file}"
+            ], env
+
+        # Ничего не нашли
         raise RuntimeError(
-            "No C++ compiler found on Windows.\n\n"
-            "Install one of:\n"
-            "  • MSYS2 MinGW: https://www.msys2.org/\n"
-            "    Then run: pacman -S mingw-w64-x86_64-gcc\n"
-            "  • Visual Studio Build Tools: "
-            "https://visualstudio.microsoft.com/visual-cpp-build-tools/\n"
-            "    Select 'Desktop development with C++'"
+            "No C++ compiler found on Windows!\n\n"
+            "Please install one of the following:\n"
+            "1. MSYS2 MinGW: https://www.msys2.org/\n"
+            "   Then run: pacman -S mingw-w64-x86_64-gcc\n\n"
+            "2. Visual Studio Build Tools: https://visualstudio.microsoft.com/visual-cpp-build-tools/\n"
+            "   Select 'Desktop development with C++'\n\n"
+            "3. Standalone MinGW-w64: https://www.mingw-w64.org/downloads/"
         )
 
     elif system == "Darwin":
@@ -197,16 +235,23 @@ def get_compiler_command() -> list[str]:
             "-shared", "-fPIC",
             "-o", str(output_file),
             str(cpp_file)
-        ]
+        ], env
 
     else:
         # Linux
+        if not shutil.which("g++"):
+            raise RuntimeError(
+                "g++ not found. Please install:\n"
+                "Ubuntu/Debian: sudo apt install g++\n"
+                "Fedora: sudo dnf install gcc-c++\n"
+                "Arch: sudo pacman -S gcc"
+            )
         return [
             "g++", "-O3", "-std=c++17",
             "-shared", "-fPIC",
             "-o", str(output_file),
             str(cpp_file)
-        ]
+        ], env
 
 
 def compile_cpp_library():
@@ -215,22 +260,27 @@ def compile_cpp_library():
     output_dir = Path(__file__).parent / "timestamp_store"
     output_file = output_dir / lib_name
 
-    # Проверяем, есть ли уже скомпилированная библиотека
     if output_file.exists():
         print(f"Library {lib_name} already exists, skipping compilation")
         return
 
     print(f"Compiling C++ library: {lib_name}")
+    print(f"Platform: {platform.system()} {platform.machine()}")
 
     try:
-        cmd = get_compiler_command()
+        cmd, env = get_compiler_command()
         print(f"Running: {' '.join(cmd)}")
+
+        path_preview = env.get("PATH", "").split(os.pathsep)[:3]
+        print(f"PATH preview: {path_preview}")
 
         result = subprocess.run(
             cmd,
             check=True,
             capture_output=True,
-            text=True
+            text=True,
+            env=env,
+            cwd=str(output_dir)
         )
 
         if result.stdout:
@@ -238,21 +288,29 @@ def compile_cpp_library():
 
         if output_file.exists():
             print(f"Successfully compiled {lib_name}")
+            print(f"Library size: {output_file.stat().st_size} bytes")
         else:
             raise RuntimeError(f"Compilation succeeded but {lib_name} not found")
 
     except subprocess.CalledProcessError as e:
         print(f"Compilation failed!")
+        print(f"Command: {' '.join(cmd)}")
         print(f"stdout: {e.stdout}")
         print(f"stderr: {e.stderr}")
         raise RuntimeError(f"Failed to compile C++ library: {e}")
     except FileNotFoundError as e:
         raise RuntimeError(
-            f"C++ compiler not found. Please install g++ or clang++.\n"
-            f"Ubuntu/Debian: sudo apt install g++\n"
-            f"macOS: xcode-select --install\n"
-            f"Windows: Install Visual Studio Build Tools or MinGW"
+            f"C++ compiler not found: {e}\n"
+            f"Please install g++, clang++, or MSVC."
         )
+    finally:
+        if platform.system() == "Windows":
+            for ext in [".obj", ".exp", ".lib"]:
+                for f in output_dir.glob(f"*{ext}"):
+                    try:
+                        f.unlink()
+                    except:
+                        pass
 
 
 class BuildPyWithCompile(build_py):
@@ -297,12 +355,16 @@ class EggInfoWithCompile(egg_info):
         compile_cpp_library()
         super().run()
 
+long_description = ""
+if os.path.exists("README.md"):
+    with open("README.md", encoding="utf-8") as f:
+        long_description = f.read()
 
 setup(
     name="timestamp-store",
     version="1.0.0",
     description="Fast timestamp-based data structure with O(log N) operations",
-    long_description=open("README.md").read() if os.path.exists("README.md") else "",
+    long_description=long_description,
     long_description_content_type="text/markdown",
     author='Shutkanos',
     author_email='Shutkanos836926@mail.ru',
@@ -324,6 +386,7 @@ setup(
         "License :: OSI Approved :: MIT License",
         "Programming Language :: Python :: 3",
         "Programming Language :: C++",
+        "Operating System :: OS Independent",
     ],
     cmdclass={
         "build_py": BuildPyWithCompile,
