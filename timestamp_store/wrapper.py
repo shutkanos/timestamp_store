@@ -34,7 +34,7 @@ class TimestampStore:
         raise FileNotFoundError(
             f"Could not find {lib_name}. "
             f"Searched in: {[str(p) for p in search_paths]}. "
-            f"Try reinstalling the package: pip install --force-reinstall timestamp-store"
+            f"Try reinstalling the package: pip install --force-reinstall git+https://github.com/shutkanos/timestamp_store.git"
         )
 
     @classmethod
@@ -159,6 +159,10 @@ class TimestampStore:
 
     def get_timestamp(self, id: int) -> Optional[int]:
         ts = self._lib_instance.ts_get_timestamp(self._store, id)
+        return ts if ts >= 0 else None
+
+    def get_min_timestamp(self) -> Optional[int]:
+        ts = self._lib_instance.ts_get_min_timestamp(self._store)
         return ts if ts >= 0 else None
 
     def __len__(self) -> int:

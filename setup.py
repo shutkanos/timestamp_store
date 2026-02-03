@@ -13,7 +13,6 @@ from setuptools.command.egg_info import egg_info
 
 
 def get_library_name():
-    """Получить имя библиотеки для текущей платформы"""
     system = platform.system()
     if system == "Windows":
         return "timestamp_store.dll"
@@ -24,29 +23,22 @@ def get_library_name():
 
 
 def find_mingw_path():
-    """Найти путь к MinGW на Windows"""
     mingw_search_paths = [
-        # MSYS2 пути (наиболее популярные)
         Path("C:/msys64/mingw64/bin"),
         Path("C:/msys64/ucrt64/bin"),
         Path("C:/msys64/clang64/bin"),
         Path("C:/msys64/mingw32/bin"),
         Path("C:/msys2/mingw64/bin"),
         Path("C:/msys2/ucrt64/bin"),
-        # Standalone MinGW
         Path("C:/mingw64/bin"),
         Path("C:/mingw/bin"),
         Path("C:/MinGW/bin"),
-        # Chocolatey
         Path("C:/tools/mingw64/bin"),
-        # Scoop
         Path(os.environ.get("USERPROFILE", "")) / "scoop/apps/mingw/current/bin",
-        # Program Files
         Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "mingw-w64/x86_64-8.1.0-posix-seh-rt_v6-rev0/mingw64/bin",
         Path(os.environ.get("ProgramFiles", "C:\\Program Files")) / "mingw64/bin",
     ]
 
-    # Проверяем переменные окружения
     for env_var in ["MINGW_HOME", "MINGW64_HOME", "MSYS2_HOME"]:
         if env_var in os.environ:
             env_path = Path(os.environ[env_var])
@@ -64,7 +56,6 @@ def find_mingw_path():
 
 
 def find_msvc_vcvarsall():
-    """Найти vcvarsall.bat для MSVC"""
     program_files_x86 = os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)")
     program_files = os.environ.get("ProgramFiles", "C:\\Program Files")
 
@@ -81,7 +72,6 @@ def find_msvc_vcvarsall():
 
     if vswhere:
         try:
-            # Ищем установку с C++ компонентами
             result = subprocess.run(
                 [
                     str(vswhere),
@@ -101,7 +91,6 @@ def find_msvc_vcvarsall():
         except subprocess.CalledProcessError:
             pass
 
-    # Fallback: прямой поиск в стандартных местах
     vs_years = ["2022", "2019", "2017"]
     vs_editions = ["Enterprise", "Professional", "Community", "BuildTools"]
 
@@ -117,10 +106,8 @@ def find_msvc_vcvarsall():
 
 
 def get_msvc_environment(vcvarsall):
-    """Получить переменные окружения после запуска vcvarsall.bat"""
     arch = "x64" if platform.machine().endswith('64') else "x86"
 
-    # Запускаем vcvarsall и получаем переменные окружения
     cmd = f'"{vcvarsall}" {arch} >nul 2>&1 && set'
 
     try:
@@ -132,7 +119,6 @@ def get_msvc_environment(vcvarsall):
             check=True
         )
 
-        # Парсим вывод команды set
         env = {}
         for line in result.stdout.splitlines():
             if '=' in line:
@@ -146,10 +132,6 @@ def get_msvc_environment(vcvarsall):
 
 
 def get_compiler_command():
-    """
-    Получить команду компиляции и окружение для текущей платформы.
-    Возвращает tuple (command_list, environment_dict)
-    """
     system = platform.system()
     lib_name = get_library_name()
 
@@ -161,10 +143,8 @@ def get_compiler_command():
     env = os.environ.copy()
 
     if system == "Windows":
-        # === Вариант 1: Ищем MinGW ===
         mingw_path = find_mingw_path()
         if mingw_path:
-            # Добавляем MinGW в начало PATH
             env["PATH"] = str(mingw_path) + os.pathsep + env.get("PATH", "")
 
             gpp_path = mingw_path / "g++.exe"
@@ -172,15 +152,13 @@ def get_compiler_command():
             return [
                 str(gpp_path),
                 "-O3", "-std=c++17", "-shared",
-                # Статическая линковка runtime библиотек - решает проблему "точка входа не найдена"
                 "-static-libgcc",
                 "-static-libstdc++",
-                "-static",  # Полностью статическая линковка (если возможно)
+                "-static",
                 "-o", str(output_file),
                 str(cpp_file)
             ], env
 
-        # === Вариант 2: Ищем MSVC ===
         vcvarsall = find_msvc_vcvarsall()
         if vcvarsall:
             msvc_env = get_msvc_environment(vcvarsall)
@@ -188,16 +166,15 @@ def get_compiler_command():
                 return [
                     "cl",
                     "/O2",
-                    "/LD",       # Создать DLL
-                    "/EHsc",     # Исключения C++
+                    "/LD",
+                    "/EHsc",
                     "/std:c++17",
-                    "/MT",       # Статическая линковка CRT (решает проблему с runtime)
+                    "/MT",
                     str(cpp_file),
                     f"/Fe:{output_file}",
-                    f"/Fo:{output_dir}\\",  # Папка для .obj файлов
+                    f"/Fo:{output_dir}\\",
                 ], msvc_env
 
-        # === Вариант 3: Проверяем PATH ===
         if shutil.which("g++"):
             print("Using g++ from PATH")
             return [
@@ -215,8 +192,6 @@ def get_compiler_command():
                 str(cpp_file),
                 f"/Fe:{output_file}"
             ], env
-
-        # Ничего не нашли
         raise RuntimeError(
             "No C++ compiler found on Windows!\n\n"
             "Please install one of the following:\n"
@@ -228,7 +203,6 @@ def get_compiler_command():
         )
 
     elif system == "Darwin":
-        # macOS - используем clang++ или g++
         compiler = "clang++" if shutil.which("clang++") else "g++"
         return [
             compiler, "-O3", "-std=c++17",
@@ -238,7 +212,6 @@ def get_compiler_command():
         ], env
 
     else:
-        # Linux
         if not shutil.which("g++"):
             raise RuntimeError(
                 "g++ not found. Please install:\n"
@@ -255,7 +228,6 @@ def get_compiler_command():
 
 
 def compile_cpp_library():
-    """Скомпилировать C++ библиотеку"""
     lib_name = get_library_name()
     output_dir = Path(__file__).parent / "timestamp_store"
     output_file = output_dir / lib_name
@@ -314,13 +286,10 @@ def compile_cpp_library():
 
 
 class BuildPyWithCompile(build_py):
-    """Кастомная команда build_py с компиляцией C++"""
-
     def run(self):
         compile_cpp_library()
         super().run()
 
-        # Копируем скомпилированную библиотеку в build директорию
         lib_name = get_library_name()
         src_lib = Path(__file__).parent / "timestamp_store" / lib_name
 
@@ -333,24 +302,18 @@ class BuildPyWithCompile(build_py):
 
 
 class DevelopWithCompile(develop):
-    """Кастомная команда develop с компиляцией C++"""
-
     def run(self):
         compile_cpp_library()
         super().run()
 
 
 class InstallWithCompile(install):
-    """Кастомная команда install с компиляцией C++"""
-
     def run(self):
         compile_cpp_library()
         super().run()
 
 
 class EggInfoWithCompile(egg_info):
-    """Кастомная команда egg_info с компиляцией C++"""
-
     def run(self):
         compile_cpp_library()
         super().run()

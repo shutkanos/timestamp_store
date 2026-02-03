@@ -1,2 +1,7 @@
 .idea
+.venv
 __pycache__
+build
+dist
+timestamp_store.egg-info
+*.dll

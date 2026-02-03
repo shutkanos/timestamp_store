@@ -25,15 +25,14 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
-    "Programming Language :: Python :: 3.99",
     "Programming Language :: C++",
     "Operating System :: OS Independent",
 ]
-keywords = ["timestamp", "data-structure", "fast", "ctypes"]
+keywords = ["timestamp", "data-structure", "ctypes"]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/timestamp-store"
-Repository = "https://github.com/yourusername/timestamp-store"
+Homepage = "https://github.com/shutkanos/timestamp_store"
+Repository = "https://github.com/shutkanos/timestamp_store"
 
 [tool.setuptools.packages.find]
 where = ["."]
